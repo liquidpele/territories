@@ -1,0 +1,384 @@
+<html ng-app="territories">
+<head>
+    <script src="http://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?sensor=false&libraries=geometry,places&ext=.js&key=AIzaSyDUguOlOHdROqkoy0ABhg3CZ2RGtBxNn20"></script>
+    <script src="http://ajax.googleapis.com/ajax/libs/angularjs/1.6.1/angular.js"></script>
+    <script src="http://ajax.googleapis.com/ajax/libs/angularjs/1.6.1/angular-animate.js"></script>
+    <script src="http://ajax.googleapis.com/ajax/libs/angularjs/1.6.1/angular-sanitize.js"></script>
+    <script src="http://cdnjs.cloudflare.com/ajax/libs/angular-ui-bootstrap/2.5.0/ui-bootstrap.min.js"></script>
+    <script src="http://cdnjs.cloudflare.com/ajax/libs/angular-ui/0.4.0/angular-ui.min.js"></script>
+    <script src="http://cdnjs.cloudflare.com/ajax/libs/angular-ui-bootstrap/2.5.0/ui-bootstrap-tpls.min.js"></script>
+
+    <link href="http://cdnjs.cloudflare.com/ajax/libs/angular-ui/0.4.0/angular-ui.min.css" rel="stylesheet" type="text/css" />
+    <link href="http://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/2.3.2/css/bootstrap.min.css" rel="stylesheet" type="text/css" />
+
+    <script>
+        var geocoder;
+        var map;
+        var bounds = new google.maps.LatLngBounds();
+
+        function infoWindow(marker, map, title, address, url) {
+            google.maps.event.addListener(marker, 'click', function () {
+                var html = "<div><h3>" + title + "</h3><p>" + address + "<br></div><a href='" + url + "'>View location</a></p></div>";
+                iw = new google.maps.InfoWindow({
+                    content: html,
+                    maxWidth: 350
+                });
+                iw.open(map, marker);
+            });
+        }
+
+        var myApp = angular.module('territories', [
+            'ui.bootstrap',
+            'ngSanitize'
+        ]);
+
+        myApp.controller('mainCtrl', ['$scope', function($scope) {
+
+            $scope.inputs = {};
+
+            $scope.nurses = [
+                {
+                    title: 'Summer Pegues',
+                    name: 'Summer Pegues',
+                    address: 'Lismore DR, columbus GA',
+                    url: null,
+                    type: 'nurse',
+                    location: null
+                },
+                {
+                    title: 'Another Nurse',
+                    name: 'Another Nurse',
+                    address: 'steam mill rd, columbus GA',
+                    url: null,
+                    type: 'nurse',
+                    location: null
+                }
+            ];
+            $scope.locations = [
+                {
+                    title: 'Marianne Pegues',
+                    name: 'Marianne Pegues',
+                    address: 'Spring Harbor, columbus GA',
+                    url: null,
+                    location: null
+                },
+                {
+                    title: 'Some Person',
+                    name: 'Some Person',
+                    address: 'Almond road, columbus GA',
+                    url: null,
+                    location: null
+                },
+                {
+                    title: 'Another Person',
+                    name: 'Another Person',
+                    address: 'Moon rd, columbus GA',
+                    url: null,
+                    location: null
+                },
+                {
+                    title: 'Yet Another Person',
+                    name: 'Yet Another Person',
+                    address: 'Forest road, columbus GA',
+                    url: null,
+                    location: null
+                }
+            ];
+
+
+            function geocodeLocation(location, location_array) {
+                var title = location.title;
+                var address = location.address;
+                var url = location.url;
+
+                geocoder.geocode(
+                    {'address': location.address},
+
+                    function (results, status) {
+                        if (status == google.maps.GeocoderStatus.OK) {
+                            location.location = results[0].geometry.location;
+                            if(location_array){
+                                location_array.push(location);
+                            }
+                            $scope.$apply();
+                            var icon = 'http://maps.google.com/mapfiles/ms/icons/blue.png';
+                            if (location.type == 'nurse') {
+                                icon = 'http://maps.google.com/mapfiles/ms/icons/green.png';
+                            }
+                            location.marker = new google.maps.Marker({
+                                icon: icon,
+                                map: map,
+                                position: results[0].geometry.location,
+                                title: title,
+                                animation: google.maps.Animation.DROP,
+                                address: address,
+                                url: url
+                            });
+                            infoWindow(location.marker, map, title, address, url);
+                            bounds.extend(location.marker.getPosition());
+                            map.fitBounds(bounds);
+                            // re-do scheduling
+                            $scope.schedule();
+                        } else {
+                            alert("geocode of " + address + " failed:" + status);
+                        }
+                    });
+            }
+
+            function distance(lat1, lon1, lat2, lon2) {
+                var p = 0.017453292519943295;    // Math.PI / 180
+                var c = Math.cos;
+                var a = 0.5 - c((lat2 - lat1) * p)/2 +
+                        c(lat1 * p) * c(lat2 * p) *
+                        (1 - c((lon2 - lon1) * p))/2;
+
+                return 12742 * Math.asin(Math.sqrt(a)); // 2 * R; R = 6371 km
+            }
+
+            function get_closest_nurse(location) {
+                var nurse = null;
+                var dist = null;
+                if (!location.location) {
+                    return nurse;
+                }
+                angular.forEach($scope.nurses, function(n) {
+                    var d = distance(
+                        location.location.lat(),
+                        location.location.lng(),
+                        n.location.lat(),
+                        n.location.lng()
+                    );
+                    if (dist == null || dist > d) {
+                        dist = d;
+                        nurse = n;
+                    }
+                });
+                return nurse;
+            }
+
+            $scope.initialize_map = function() {
+                map = new google.maps.Map(
+                    document.getElementById("map_canvas"), {
+                        center: new google.maps.LatLng(32.50218374620314, -84.94768528598632),
+                        zoom: 12,
+                        mapTypeId: google.maps.MapTypeId.ROADMAP
+                    });
+                geocoder = new google.maps.Geocoder();
+
+                angular.forEach($scope.nurses, function(loc) {
+                    geocodeLocation(loc);
+                });
+                angular.forEach($scope.locations, function(loc) {
+                    geocodeLocation(loc);
+                });
+            };
+
+            function addCity(address) {
+                if (address.indexOf(',') === -1 && address.toLowerCase().indexOf('columbus') === -1) {
+                    return address + ', columbus GA';
+                }
+                return address;
+            }
+
+            $scope.addPatient = function() {
+                var name = $.trim($scope.inputs.patient_name);
+                var address = $.trim($scope.inputs.patient_address);
+                if (name && address) {
+                    var new_loc = {title: name, name: name, address: addCity(address), url: 'some url'};
+                    geocodeLocation(new_loc, $scope.locations);
+                    $scope.inputs.patient_address = '';
+                    $scope.inputs.patient_name = '';
+                    $('#patient_name').focus();
+                }else {
+                    alert('missing info');
+                }
+            };
+            $scope.addNurse = function() {
+                var name = $.trim($scope.inputs.nurse_name);
+                var address = $.trim($scope.inputs.nurse_address);
+                if (name && address) {
+                    var new_loc = {title: name, name: name, address: addCity(address), url: 'some url', type: 'nurse'};
+                    geocodeLocation(new_loc, $scope.nurses);
+                    $scope.inputs.nurse_address = '';
+                    $scope.inputs.nurse_name = '';
+                    $('#nurse_name').focus();
+                } else {
+                    alert('missing info');
+                }
+            };
+            $scope.schedule = function() {
+                angular.forEach($scope.nurses, function(n) {
+                    n.clients = [];
+                });
+                if ($scope.inputs.equal) {
+                    // calculate distances between every client and nurse
+                    var distances = {};
+                    angular.forEach($scope.nurses, function(n, n_index) {
+                        distances[n_index] = {};
+                        angular.forEach($scope.locations, function(l, l_index) {
+                            distances[n_index][l_index] = distance(n.location.lat(), n.location.lng(), l.location.lat(), l.location.lng());
+                        });
+                    });
+
+                } else {
+                    angular.forEach($scope.locations, function (loc) {
+                        var nurse = get_closest_nurse(loc);
+                        if(nurse) {
+                            nurse.clients.push(loc);
+                        }
+                    });
+                }
+                // draw lines between nurses and clients
+                var paths = [];
+                angular.forEach($scope.nurses, function(nurse) {
+                    angular.forEach(nurse.lines, function(line) {
+                        line.setMap(null);
+                    });
+                    nurse.lines = [];
+                    angular.forEach(nurse.clients, function(client) {
+                        client.lines = [];
+                        var path = new google.maps.Polyline({
+                            path: [
+                                {lat: nurse.location.lat(), lng: nurse.location.lng()},
+                                {lat: client.location.lat(), lng: client.location.lng()},
+                            ],
+                            strokeColor: '#6991fd',
+                            strokeOpacity: 0.7,
+                            strokeWeight: 2
+                        });
+                        path.setMap(map);
+                        nurse.lines.push(path);
+                        client.lines.push(path);
+                    });
+                });
+
+
+            };
+            $scope.removeItem = function(list, item) {
+                angular.forEach(list, function(i, index) {
+                    if (item == i) {
+                        item.marker.setMap(null);
+                        angular.forEach(item.lines, function(line) {
+                            line.setMap(null);
+                        });
+                        list.splice(index, 1 );
+                    }
+                });
+            };
+            $scope.initialize_map();
+        }]);
+
+
+    </script>
+    <style>
+        .gmnoprint {
+            display: none;
+        }
+        .nav {
+            margin-bottom: 5px;
+        }
+        html, body, #map_canvas {
+            margin: 0px;
+            padding: 0px
+        }
+        #map_canvas {
+            width: calc(100% - 650px);
+            height: calc(100% - 20px);
+            border: 2px solid #3872ac;
+            display: inline-block;
+            margin: 5px;
+        }
+        .loc_list {
+            margin-bottom: 5px;
+            background-color: #EEE;
+            padding-left: 3px;
+        }
+        input {
+            width: calc(50% - 30px);
+            box-sizing: border-box;
+        }
+        .loc_list .close {
+            position: absolute;
+            top: -2;
+            right: 2;
+        }
+        .loc_list .col-50:first-child {
+            width: 40%
+        }
+        .loc_list .col-50 {
+            width: 58%;
+            display: inline-block;
+        }
+    </style>
+</head>
+
+<body ng-controller="mainCtrl">
+    <div id="map_canvas"></div>
+    <div style="width:600px; display:inline-block; vertical-align: top; margin-top: 5px;">
+        <uib-tabset>
+            <uib-tab index="0" heading="Patients ({{ locations.length }})">
+                <div style="display:inline-block; width: 100%; vertical-align: top; ">
+                    <div style="padding-left: 3px; background-color: #6991fd; color: #FFF;">Patients</div>
+                    <div class="loc_list" ng-repeat="loc in locations track by $index">
+                        <div style="position: relative;">
+                            <div class="col-50">
+                                {{ loc.name }}
+                            </div>
+                            <div class="col-50">
+                                {{ loc.address }}
+                            </div>
+                            <div class="close" ng-click="removeItem(locations, loc)">x</div>
+                        </div>
+                    </div>
+                    <div>
+                        <form ng-submit="addPatient()">
+                            <input id="patient_name" ng-model="inputs.patient_name" placeholder="Patient's Name" />
+                            <input id="patient_address" ng-model="inputs.patient_address" placeholder="Address" />
+                            <button type="submit">✔</button>
+                        </form>
+                    </div>
+                </div>
+            </uib-tab>
+            <uib-tab index="1" heading="Nurses ({{ nurses.length }})">
+                <div style="display:inline-block; width: 100%; vertical-align: top; ">
+                    <div style="padding-left: 3px; background-color: #00e64d; color: #FFF;">Nurses</div>
+                    <div class="loc_list" ng-repeat="loc in nurses track by $index">
+                        <div style="position: relative;">
+                            <div class="col-50">
+                                {{ loc.name }}
+                            </div>
+                            <div class="col-50">
+                                {{ loc.address }}
+                            </div>
+                            <div class="close" ng-click="removeItem(nurses, loc)">x</div>
+                        </div>
+                    </div>
+                    <div>
+                        <form ng-submit="addNurse()">
+                            <input id="nurse_name" ng-model="inputs.nurse_name" placeholder="Nurse's Name" />
+                            <input id="nurse_address" ng-model="inputs.nurse_address" placeholder="Address" />
+                            <button type="submit">✔</button>
+                        </form>
+                    </div>
+                </div>
+            </uib-tab>
+            <uib-tab index="2" heading="Groupings">
+                <div style="display: none; padding-bottom: 5px;">
+                    <input type="checkbox" ng-model="inputs.equal" value="1" ng-click="schedule()"/> Separate clients equally
+                </div>
+                <div ng-repeat="nurse in nurses track by $index">
+                    <div style="padding-left: 3px; background-color: #00e64d; color: #FFF; font-weight: bold;">
+                        {{ nurse.name }}<span style="opacity: 0.7; padding-left: 10px;">({{ nurse.address }})</span>
+                    </div>
+                    <ul style="padding-left: 3px; background-color: #6991fd; color: #FFF;">
+                        <li ng-repeat="client in nurse.clients track by $index">
+                            {{ client.name }} <span style="opacity: 0.7; padding-left: 10px;">({{ client.address }})</span>
+                        </li>
+                    </ul>
+                </div>
+            </uib-tab>
+        </uib-tabset>
+    </div>
+</body>
+</html>
